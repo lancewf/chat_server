@@ -1,0 +1,3 @@
+-record(login_user,{username, pid}).
+-record(send_message, {from_username, to_username, message}).
+-record(remove_user, {username}).

@@ -21,8 +21,8 @@ logoff() ->
 			mess_client ! logoff
 	end.
 
-send(ToUserName, Message) ->
-	mess_client ! #send_message{to_username=ToUserName, message=Message},
+send(ToUserName, Body) ->
+	mess_client ! #send_message{message=#message{to_username=ToUserName, body=Body}},
 	ok.
 
 

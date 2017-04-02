@@ -10,18 +10,25 @@ server() ->
 
 server(Users) ->
 	receive
-		#send_message{from_username=FromUserName, to_username=ToUserName, message=Message} -> 
+		#send_message{message=MessageFromUser} -> 
+			Message = MessageFromUser#message{timestamp = get_timestamp()},
+			FromUserName = Message#message.from_username,
+			ToUserName = Message#message.to_username,
 			io:format("sending message from ~w to ~w ~n", [FromUserName, ToUserName]),
-			ToPID = maps:get(ToUserName, Users, none),
-			FromPID = maps:get(FromUserName, Users, none),
+			ToUserData = maps:get(ToUserName, Users, none),
+			FromUserData = maps:get(FromUserName, Users, none),
 			if
-				ToPID == none ->
-					FromPID ! {send_message_response, 'User not logged in'};
+				ToUserData == none ->
+					FromUserData#user_data.pid ! {send_message_response, 'User not known in'},
+					server(Users);
+				ToUserData#user_data.pid == none ->
+					FromUserData#user_data.pid ! {send_message_response, 'User is offline'},
+					server(update_user_data_for_offline_message(Users, Message));
 				true ->
-					ToPID ! {recive_message, FromUserName, Message},
-					FromPID ! {send_message_response, 'Message sent'}
-			end,
-			server(Users);
+					ToUserData#user_data.pid ! #receive_message{message=Message},
+					FromUserData#user_data.pid ! {send_message_response, 'Message sent'},
+					server(Users)
+			end;
 		#login_user{username=UserName, pid=PID} -> 
 			Valid = is_valid_login(UserName),
 			if
@@ -29,23 +36,87 @@ server(Users) ->
 					io:format("adding user ~w ~n", [UserName]),
 					PID ! logged_in,
 					link(PID),
-					server(Users#{UserName => PID});
+					OfflineMessages = get_offline_messages(Users, UserName),
+					send_offline_messages(OfflineMessages, PID),
+					server(update_user_data_for_login(Users, UserName, PID));
 				true ->
 					PID ! {bad_log_in, 'Not allowed access'},
 					server(Users)
 			end;
 		#remove_user{username=UserName} -> 
 			io:format("removed user ~w ~n", [UserName]),
-			server(maps:remove(UserName, Users));
+			server(update_user_data_for_logout(Users, UserName));
 		print_users ->
 			io:format("Users = ~w ~n", [Users]),
 			server(Users);
                 {'EXIT', From, _} ->
 			%io:format("Exit From ~w What? ~w ~n", [From, What]),
-			server(removeUserFromPID(maps:to_list(Users), From, #{}));
+			UserName = get_user_name_from_pid(Users, From),
+			server(update_user_data_for_logout(Users, UserName));
 		finish ->
 			io:format("sender finish Users = ~w ~n", [Users]),
 			exit(normal)
+	end.
+
+update_user_data_for_offline_message(UserMap, Message) ->
+	ToUserName = Message#message.to_username,
+	ExistingUser = maps:is_key(ToUserName, UserMap),
+	if
+		ExistingUser ->
+			UserData = maps:get(ToUserName, UserMap),
+			UpdatedMessages = lists:append(UserData#user_data.messages, [Message]),
+			UserMap#{ToUserName => UserData#user_data{messages=UpdatedMessages}};
+		true ->
+			UserMap
+	end.
+
+get_timestamp() ->
+	{Mega, Seconds, _} = erlang:timestamp(),
+	Mega * 1000000 + Seconds.
+
+get_user_name_from_pid(UserMap, UserPID) when is_map(UserMap) ->
+	get_user_name_from_pid(maps:to_list(UserMap), UserPID);
+
+get_user_name_from_pid([], _) ->
+	none;
+get_user_name_from_pid([{UserName, #user_data{pid=PID}}|_], UserPID) when PID =:= UserPID ->
+	UserName;
+get_user_name_from_pid([_|UserRest], UserPID) ->
+	get_user_name_from_pid(UserRest, UserPID).
+	
+update_user_data_for_logout(UserMap, UserName) ->
+	ExistingUser = maps:is_key(UserName, UserMap),
+	if
+		ExistingUser ->
+			UserData = maps:get(UserName, UserMap),
+			UserMap#{UserName => UserData#user_data{pid=none}};
+		true ->
+			UserMap
+	end.
+
+get_offline_messages(Users, UserName) ->
+	UserData = maps:get(UserName, Users, none),
+	if
+		UserData =:= none ->
+			[];
+		true ->
+			UserData#user_data.messages
+	end.
+
+send_offline_messages([], _) ->
+	ok;
+send_offline_messages([Message|Rest], ToUserPID) ->
+	ToUserPID ! #receive_message{message=Message},
+	send_offline_messages(Rest, ToUserPID).
+
+update_user_data_for_login(UserMap, UserName, UserPID) ->
+	ExistingUser = maps:is_key(UserName, UserMap),
+	if
+		ExistingUser ->
+			UserData = maps:get(UserName, UserMap),
+			UserMap#{UserName => UserData#user_data{pid=UserPID, messages=[]}};
+		true ->
+			UserMap#{UserName => #user_data{pid=UserPID, messages=[]}}
 	end.
 
 is_valid_login(UserName) ->
@@ -55,14 +126,3 @@ is_valid_login(UserName) ->
 		true ->
 			true
 	end.
-
-removeUserFromPID([], _, NewUsersMap) ->
-	NewUsersMap;
-
-removeUserFromPID([{UserName, ClientPID}|RestOfUsers], PIDToRemove, NewUsersMap) when ClientPID == PIDToRemove ->
-	io:format("removing user: ~w ~n", [UserName]),
-	removeUserFromPID(RestOfUsers, PIDToRemove, NewUsersMap);
-	
-removeUserFromPID([{UserName, ClientPID}|RestOfUsers], PIDToRemove, NewUsersMap) ->
-	removeUserFromPID(RestOfUsers, PIDToRemove, NewUsersMap#{UserName => ClientPID}).
-

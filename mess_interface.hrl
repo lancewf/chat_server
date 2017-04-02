@@ -1,3 +1,6 @@
 -record(login_user,{username, pid}).
--record(send_message, {from_username, to_username, message}).
+-record(send_message, {message}).
+-record(message, {from_username, to_username, body, timestamp}).
 -record(remove_user, {username}).
+-record(receive_message, {message}). 
+-record(user_data, {pid, messages}).

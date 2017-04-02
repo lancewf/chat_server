@@ -29,15 +29,15 @@ start(UserName, TriesLeft) ->
 
 client(SPID, UserName) ->
 	receive
-		{recive_message, FromUserName, Message}-> 
-			io:format("~w: ~w ~n", [FromUserName, Message]),
+		#receive_message{message=Message}-> 
+			io:format("~w: ~w ~n", [Message#message.from_username, Message#message.body]),
 			client(SPID, UserName);
 		logoff ->
 			SPID ! #remove_user{username=UserName},
 			io:format("~w logged off.~n", [UserName]),
 			exit(normal);
-		#send_message{to_username=ToUserName, message=Message}-> 
-			SPID ! #send_message{from_username=UserName, to_username=ToUserName, message=Message},
+		#send_message{message=Message}-> 
+			SPID ! #send_message{message=Message#message{from_username=UserName}},
 			client(SPID, UserName);
                 {'EXIT', _, What} ->
 			io:format("Lost connect to server. Exiting: ~w ~n", [What]),

@@ -1,2 +1,3 @@
 *.beam
 mess_config.hrl
+*.swp

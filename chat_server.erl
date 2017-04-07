@@ -1,6 +1,6 @@
 -module(chat_server).
 
--export([server/0]).
+-export([server/0, get_user_name_from_pid/2]).
 -include("mess_interface.hrl").
 
 
@@ -49,10 +49,13 @@ server(Users) ->
 		print_users ->
 			io:format("Users = ~w ~n", [Users]),
 			server(Users);
-                {'EXIT', From, _} ->
-			%io:format("Exit From ~w What? ~w ~n", [From, What]),
-			UserName = get_user_name_from_pid(Users, From),
-			server(update_user_data_for_logout(Users, UserName));
+                {'EXIT', FromPID, _} ->
+			case get_user_name_from_pid(Users, FromPID) of
+				false -> 
+					server(Users);
+				{true, UserName} -> 
+					server(update_user_data_for_logout(Users, UserName))
+			end;
 		finish ->
 			io:format("sender finish Users = ~w ~n", [Users]),
 			exit(normal)
@@ -75,15 +78,12 @@ get_timestamp() ->
 	Mega * 1000000 + Seconds.
 
 get_user_name_from_pid(UserMap, UserPID) when is_map(UserMap) ->
-	get_user_name_from_pid(maps:to_list(UserMap), UserPID);
+	Users = maps:to_list(UserMap),
+	case lists:dropwhile(fun ({_, #user_data{pid=PID}}) -> PID =/= UserPID end, Users) of
+		[{UserName, _}|_] -> {true, UserName};
+		[] -> false
+	end.
 
-get_user_name_from_pid([], _) ->
-	none;
-get_user_name_from_pid([{UserName, #user_data{pid=PID}}|_], UserPID) when PID =:= UserPID ->
-	UserName;
-get_user_name_from_pid([_|UserRest], UserPID) ->
-	get_user_name_from_pid(UserRest, UserPID).
-	
 update_user_data_for_logout(UserMap, UserName) ->
 	ExistingUser = maps:is_key(UserName, UserMap),
 	if

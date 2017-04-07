@@ -30,7 +30,7 @@ start(UserName, TriesLeft) ->
 client(SPID, UserName) ->
 	receive
 		#receive_message{message=Message}-> 
-			io:format("~w: ~w ~n", [Message#message.from_username, Message#message.body]),
+			io:format("~w - ~w: ~w ~n", [Message#message.timestamp, Message#message.from_username, Message#message.body]),
 			client(SPID, UserName);
 		logoff ->
 			SPID ! #remove_user{username=UserName},
